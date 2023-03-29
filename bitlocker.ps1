@@ -1,3 +1,5 @@
+Start-Transcript $env:SYSTEMROOT\TEMP\bitlocaker_enabler.log
+$btlkDir = Split-Path -parent $MyInvocation.MyCommand.Definition
 $efi = $true
 $tpm = $true
 $btl_c = $false
@@ -6,7 +8,7 @@ $uprofiles = $false
 if ($env:FIRMWARE_TYPE -ne "UEFI") {
  $efi = $false
 }
-if (!((Get-Tpm).tpmpresent)) {
+if (!((Get-Tpm).TpmEnabled)) {
     $tpm = $false
 }
 if ((Get-BitLockerVolume).MountPoint.Contains("C:")) {
@@ -22,10 +24,10 @@ if ((Get-BitLockerVolume).MountPoint.Contains("C:")) {
 
 #$tpm = $false
 
-$fl1 = "$efi.png"
-$fl2 = "$tpm.png"
-$fl3 = "$decr_c.png"
-$fl4 = "copy.png"
+$fl1 = "$btlkDir\$efi.png"
+$fl2 = "$btlkDir\$tpm.png"
+$fl3 = "$btlkDir\$decr_c.png"
+$fl4 = "$btlkDir\copy.png"
 
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName System.Windows.Forms
@@ -75,7 +77,7 @@ $Label4.location = New-Object System.Drawing.Point(337,42)
 $Label4.Font = 'Microsoft Sans Serif,10'
 
 $Label5 = New-Object system.Windows.Forms.Label
-$Label5.text = "Enter password"
+$Label5.text = "Enter or generate password"
 $Label5.AutoSize = $true
 $Label5.width = 25
 $Label5.height = 10
@@ -131,7 +133,7 @@ $PictureBox3.SizeMode = "Zoom"
 
 $TextBox1 = New-Object system.Windows.Forms.TextBox
 $TextBox1.multiline = $false
-$TextBox1.width = 372
+$TextBox1.width = 350
 $TextBox1.height = 20
 $TextBox1.location = New-Object System.Drawing.Point(35,250)
 $TextBox1.Font = 'Microsoft Sans Serif,10'
@@ -173,6 +175,17 @@ $Button4.add_click({
 $Button4.location = New-Object System.Drawing.Point(415,249)
 $Button4.Visible = $false
 
+$Button6 = New-Object system.Windows.Forms.Button
+$Button6.Text = "#"
+$Button6.width = 20
+$Button6.height = 25
+$Button6.add_click({
+    Add-Type -AssemblyName "System.Web"
+    $TextBox1.Text = [System.Web.Security.Membership]::GeneratePassword(10,0)
+})
+$Button6.location = New-Object System.Drawing.Point(392,249)
+$Button6.Visible = $false
+
 $Button2 = New-Object system.Windows.Forms.Button
 $Button2.text = "Close"
 $Button2.width = 70
@@ -192,9 +205,21 @@ $Button1.Font = 'Microsoft Sans Serif,10'
 $Button1.Enabled = $decr_c
 $Button1.Add_Click({
     $button1.Enabled = $false
+    
+    write-host "eject all removeble media"
+    $vol= (Get-WmiObject -Class Win32_Volume | where {($_.drivetype -eq '2') -or ($_.drivetype -eq '5')}  )
+    $Eject =  New-Object -comObject Shell.Application
+    $Eject.NameSpace(17).ParseName($vol.driveletter).InvokeVerb("Eject")
+
     Add-BitLockerKeyProtector -MountPoint "C:" -RecoveryPasswordProtector -WarningVariable "one"
     $one[0] -match "(\d{6}(-\d{6}){7})"
     $Matches[0] | Set-Content $env:COMPUTERNAME.txt
+    if (Test-Path "$env:SYSTEMROOT\System32\Recovery\REAgent.xml") {
+        if (Test-Path "$env:SYSTEMROOT\System32\Recovery\REAgent.old") {
+            Remove-Item -Path "$env:SYSTEMROOT\System32\Recovery\REAgent.old" -Force
+        }
+        Rename-Item -Path "$env:SYSTEMROOT\System32\Recovery\REAgent.xml" -NewName "$env:SYSTEMROOT\System32\Recovery\REAgent.old" -Force
+    }
     if ($efi) {
         if ($tpm) {
             $form.ClientSize = "450,250"
@@ -204,6 +229,7 @@ $Button1.Add_Click({
             $TextBox2.Visible = $true
             $TextBox2.Text = $Matches[0].Trim()
             $Button5.Visible = $false
+            $Button6.Visible = $false
             Initialize-Tpm -AllowClear -AllowPhysicalPresence -ErrorAction SilentlyContinue
             $button2.Enabled = $false
             Write-Host "enabling bitlocker with tpm only"
@@ -232,6 +258,7 @@ $Button1.Add_Click({
             $Label6.Visible = $true
             $Label5.Visible = $true
             $Button5.Visible = $true
+            $Button6.Visible = $true
         }
     } else {
         $form.ClientSize = "450,350"
@@ -262,7 +289,7 @@ $Button5.Add_Click({
         $label7.ForeColor = "Red"
     } else {
         $label7.Text = ""
-        $pass | Set-Content $env:Programdata\privat\system\$env:COMPUTERNAME_psswd.txt
+        $pass | Set-Content "${env:COMPUTERNAME}_passwd.txt"
         $passwd = ConvertTo-SecureString $pass  -AsPlainText -force
         $button2.Enabled = $false
         $button5.Enabled = $false
@@ -281,6 +308,8 @@ $Button5.Add_Click({
     }
 })
 
-$Form.controls.AddRange(@($Label1,$Label2,$Label3,$label4,$PictureBox1,$PictureBox2,$PictureBox3,$Button1,$Button2,$Label5,$Label6,$label7,$TextBox1,$textbox2,$Button3,$button4,$button5))
+$Form.controls.AddRange(@($Label1,$Label2,$Label3,$label4,$PictureBox1,$PictureBox2,$PictureBox3,$Button1,$Button2,$Label5,$Label6,$label7,$TextBox1,$textbox2,$Button3,$button4,$button5,$button6))
 
 $Form.ShowDialog() | Out-Null
+
+Stop-Transcript
